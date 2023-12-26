@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Remote Keyboard</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        .container {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .boxContainer {
+            display: flex;
+            width: 250px;
+            flex-wrap: wrap;
+        }
+
+        .boxContainer>div {
+            display: flex;
+        }
+
+        .box {
+            height: 50px;
+            width: 50px;
+            border: 1px solid black;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .btnContainer {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .status-text {
+            color: rgb(179, 170, 170);
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <div class="boxContainer">
+            <div id="box1" class="box">1</div>
+            <div id="box2" class="box">2</div>
+            <div id="box3" class="box">3</div>
+            <div id="box4" class="box">4</div>
+            <div id="box5" class="box">5</div>
+            <div id="box6" class="box">6</div>
+            <div id="box7" class="box">7</div>
+            <div id="box8" class="box">8</div>
+            <div id="box9" class="box">9</div>
+            <div id="box10" class="box">10</div>
+        </div>
+        <div class="btnContainer">
+            <button id="controlBtn">Take Control</button>
+            <h4 class="status-text"><span style="color: gray;font-weight: 700;">Status</span>: <span id="status-text">No
+                    user has control
+                    now</span>
+            </h4>
+        </div>
+    </div>
+
+    <script>
+
+        let userId = null;
+        let myColor = null;
+        let boardId = null;
+        var btnTimer;
+
+        let ws = new WebSocket("ws://localhost:4000");
+        const controlBtn = document.getElementById('controlBtn');
+
+        controlBtn.addEventListener('click', e => {
+
+            if (boardId == null) boardId = '1';
+            const payload = {
+                'method': 'control',
+                'userId': userId,
+                'boardId': boardId
+            }
+
+            ws.send(JSON.stringify(payload));
+        })
+
+        ws.onmessage = message => {
+            const response = JSON.parse(message.data)
+
+            if (response.method === 'connect') {
+                userId = response.userId;
+
+                const payload = {
+                    'method': 'create',
+                    'userId': userId
+                }
+
+                ws.send(JSON.stringify(payload));
+            }
+
+            if (response.method === 'create') {
+                boardId = response.board.id;
+
+                updateStatusText(response.board, userId)
+            }
+
+            if (response.method === 'control') {
+                const board = response.board;
+
+                updateStatusText(board, userId)
+
+                board.users.forEach(user => {
+                    if (user.userId === userId) myColor = user.color
+                })
+
+                btnTimer = window.setTimeout(notClicked, 120000);
+
+                for (let i = 1; i <= 10; i++) {
+                    const b = document.getElementById(`box${i}`)
+                    b.addEventListener('click', e => {
+                        if (board.acquired_by === userId) {
+
+                            if (b.style.backgroundColor && !(b.style.backgroundColor === 'white')) {
+                                color = 'white';
+                            } else {
+                                color = myColor;
+                            }
+                            const payload = {
+                                'method': 'click',
+                                'userId': userId,
+                                'key': b.innerHTML,
+                                'color': color,
+                                'boardId': boardId
+                            }
+
+                            ws.send(JSON.stringify(payload))
+                        } else {
+                            console.log("some has already acquired")
+                        }
+                        clicked();
+                    })
+                }
+            }
+
+            if (response.method === 'update') {
+                if (!response.board.state) return;
+                for (const b of Object.keys(response.board.state)) {
+                    const color = response.board.state[b];
+                    const box = document.getElementById("box" + b)
+                    box.style.backgroundColor = color
+                }
+                updateStatusText(response.board, userId)
+            }
+
+            if (response.method === 'timeout') {
+                updateStatusText(response.board, userId)
+            }
+        };
+
+        function updateStatusText(board, userId) {
+            const d = document.getElementById('status-text');
+            if (board.acquired_by == null) {
+                d.innerHTML = "No user has control now"
+            } else {
+                if (board.acquired_by === userId) {
+                    d.innerHTML = "Under my control"
+                } else {
+                    d.innerHTML = "Under someone's control"
+                }
+            }
+        }
+
+        // timer
+        function notClicked() {
+            const payload = {
+                'method': 'timeout',
+                'userId': userId,
+                'boardId': boardId
+            }
+
+            ws.send(JSON.stringify(payload));
+        }
+
+        function clicked() {
+            clearTimeout(btnTimer);
+        }
+    </script>
+
+</body>
+
+</html>
